@@ -1,5 +1,10 @@
-import requests, json, os
+import requests, json
+import os
+from os.path import join, dirname
+from dotenv import load_dotenv
 
+dotenv_path = join(dirname(__file__), '.env')
+load_dotenv(dotenv_path)
 def get_creds():
     """ Get creds required for use in the applications
 
@@ -9,7 +14,7 @@ def get_creds():
 
     creds = dict()  # dictionary to hold everything
     # access token for use with all api calls
-    creds['access_token'] = os.getenv('TOKEN')
+    creds['access_token'] = os.environ.get('TOKEN')
     # base domain for api calls
     creds['graph_domain'] = 'https://graph.facebook.com/'
     creds['graph_version'] = 'v11.0'  # version of the api we are hitting
