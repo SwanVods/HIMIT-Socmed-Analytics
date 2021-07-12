@@ -5,4 +5,7 @@
 /youtube/__pycache__
 /youtube/.ipynb_checkpoints
 /himit_analytics
+/instagram/profile.json
+/instagram/result.json
 .env
+.gitignore

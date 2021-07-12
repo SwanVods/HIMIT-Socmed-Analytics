@@ -1,13 +1,12 @@
 import json
 from credentials import get_creds, makeApiCall
 from dateutil import parser
-from datetime import datetime
 
-def getUserMedia(params):
+def getUserMedia(params, since = None, until = None):
 	""" Get users media
 	
 	API Endpoint:
-		https://graph.facebook.com/{graph-api-version}/{ig-user-id}/media?fields={fields}
+		https://graph.facebook.com/{graph-api-version}/{ig-user-id}/media?fields={fields}&since={since}&until={until}
 	Returns:
 		object: data from the endpoint
 	"""
@@ -15,56 +14,105 @@ def getUserMedia(params):
 	endpointParams = dict()  
 	endpointParams['fields'] = 'id,media_type'
 	endpointParams['access_token'] = params['access_token'] 
+	endpointParams['since'] = since
+	endpointParams['until'] = until
 	url = params['endpoint_base'] + \
 		params['instagram_account_id'] + '/media'
 
 	return makeApiCall(url, endpointParams, params['debug'])  
 
-	
 
-def getMediaInsights(params):
+def getMediaInsights(params, since=None, until=None):
+	""" Get users media
+
+	API Endpoint:
+		https://graph.facebook.com/v11.0/{ig-media-id}/insights?metric={metric}&access_token={access-token}&period={period}&since={since}&until={until}
+
+	"""
 
 	endpointParams = dict()  
-	endpointParams['access_token'] = params['access_token']  
-
-	medias = getUserMedia(params)
+	response = []
+	medias = getUserMedia(params, since, until) # list of media
 
 	# Get insights each media
 	for media in medias['json_data']['data'] :
 		if 'CAROUSEL_ALBUM' == media['media_type'] :
 			params['metric'] = 'carousel_album_engagement,carousel_album_impressions,carousel_album_reach'
 		else : 
-			params['metric'] = 'engagement,impressions,reach,saved'
+			params['metric'] = 'engagement,impressions,reach'
+
+		params['media_id'] = media['id']
+		url = params['endpoint_base'] + params['media_id'] + '/insights'
 
 		endpointParams['metric'] = params['metric']
-		params['latest_media_id'] = media['id']
-		url = params['endpoint_base'] + params['latest_media_id'] + '/insights'
+		endpointParams['access_token'] = params['access_token']
+		endpointParams['period'] = 'lifetime'
+		res = makeApiCall(url, endpointParams, params['debug'])
+		
+		#add new key : media_id
+		for data in res['json_data']['data'] :
+			data['media_id'] = media['id']
+			data['media_type'] = media['media_type']
 
-		response = makeApiCall(url, endpointParams, params['debug'])
+		response.append(res['json_data']['data'])
 
-		with open('result.json', 'a') as fp:
-			json.dump([media, response['json_data']], fp)
-
-		# for insight in response['json_data']['data']:  # loop over post insights
-		# 	print ("\t" + insight['title'] + " (" + insight['period'] + "): " + str(insight['values'][0]['value']))
-	print('Media dump success!')
+	media_insight_dump(response)
 
 
-def getUserInsights(params):
-	""" Get insights for a users account
+def media_insight_dump(posts):
+	"""
+	Generates a JSON file 
+	"""
+
+	data = []
+
+	for postMetrics in posts:
+		postInsight = dict()
+		for metric in postMetrics:
+			postInsight['id'] = metric['media_id']
+
+			if metric['media_type'] == 'IMAGE':
+				if metric['name'] == 'engagement':
+					postInsight['engagement'] = metric['values']
+				elif metric['name'] == 'impressions':
+					postInsight['impressions'] = metric['values']
+				elif metric['name'] == 'reach':
+					postInsight['reach'] = metric['values']
+
+			elif metric['media_type'] == 'CAROUSEL_ALBUM':
+				if metric['name'] == 'carousel_album_engagement':
+					postInsight['engagement'] = metric['values']
+				elif metric['name'] == 'carousel_album_impressions':
+					postInsight['impressions'] = metric['values']
+				elif metric['name'] == 'carousel_album_reach':
+					postInsight['reach'] = metric['values']
+
+		data.append(postInsight)
+	
+	with open('result.json', 'w') as fp:
+		json.dump(data, fp)
+	print('Media Dump Success!')
+
+
+def getUserInsights(params, since = None, until = None):
+	""" 
+	Get insights for a users account
+
+	Include the `since` and `until` parameters with Unix timestamps to define a range.
 	
 	API Endpoint:
 		https://graph.facebook.com/{graph-api-version}/{ig-user-id}/insights?metric={metric}&period={period}&since={since}&until={until}
+		
 	Returns:
-		object: data from the endpoint
+		Generate a data inside json file
 	"""
 
 	endpointParams = dict()  # parameter to send to the endpoint
 	# fields to get back
 	endpointParams['metric'] = 'follower_count,impressions,profile_views,reach'
 	endpointParams['period'] = 'day'  # period
-	endpointParams['since'] = '1625072400'
-	endpointParams['until'] = '1626071077'
+	endpointParams['since'] = since
+	endpointParams['until'] = until
 	endpointParams['access_token'] = params['access_token']  # access token
 
 	url = params['endpoint_base'] + \
@@ -72,15 +120,20 @@ def getUserInsights(params):
 
 	response = makeApiCall(url, endpointParams, params['debug']) 
 
-	dump_to_json(response)
+	user_insight_dump(response)
 	
-def dump_to_json(resDicts) :
+def user_insight_dump(resDicts) :
+	"""
+	Generates a JSON File
+	"""
 	reslist = []
 
 	for data in resDicts['json_data']['data']:
 		data['total'] = 0
 		for value in data['values']:
-			data['total'] += value['value']
+			data['total'] += value['value'] # summing values
+			parsed = parser.parse(value['end_time']) 
+			value['end_time'] = parsed.strftime("%d-%b-%Y") # converting date
 
 		data['avg'] = data['total'] / len(data['values'])
 		reslist.append(data)
@@ -88,12 +141,3 @@ def dump_to_json(resDicts) :
 	with open('profile.json', 'w') as fp:
 		json.dump(reslist, fp)
 	print('Profile Dump Success!')
-
-	# print("\n---- MONTHLY USER ACCOUNT INSIGHTS -----\n")
-
-	# for insight in response['json_data']['data']:
-	# 	print("\t" + insight['title'] + " (" + insight['period'] + "): ")
-	# 	for value in insight['values']:  # loop over each value
-	# 		parsed = parser.parse(value['end_time'])
-	# 		print("\t\t" + parsed.strftime("%d-%b-%Y (%H:%M:%S)") +
-	# 		      ": " + str(value['value']))
